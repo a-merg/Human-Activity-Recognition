@@ -1,0 +1,173 @@
+---
+title: "Human Activity Recognition"
+author: "Alex Merg"
+date: "2/28/2021"
+output: html_document
+---
+
+```{r, message=FALSE}
+library(knitr)
+library(caret)
+library(rattle)
+library(ggcorrplot)
+library(tidyverse)
+```
+
+<br></br>
+
+#### Introduction 
+
+**Background**
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+**Data** 
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
+
+**Purpose** 
+
+The goal of the project is to predict the manner in which participants performed the excercise, which is the "classe" variable in the dataset. Any variable can be used to predict.
+
+<br></br>
+
+##### Load and Setup Data
+
+```{r}
+trainURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training_data <- read.csv(url(trainURL))
+testing_data <- read.csv(url(testURL))
+
+inTrain = createDataPartition(training_data$classe, p = 0.7, list = FALSE)
+training = training_data[ inTrain,]
+testing = training_data[-inTrain,]
+
+dim(training)
+dim(testing)
+```
+
+<br></br>
+
+##### Clean Data
+
+Remove variables with variances at or near zero
+
+```{r}
+NZV <- nearZeroVar(training, saveMetrics = TRUE)
+training <- training[, NZV$nzv == FALSE]
+
+```
+
+Remove first 5 columns of dataset, as they are merely ID related variables
+
+```{r}
+training <- training[,-(1:5)]
+```
+
+Remove variables where greater than 70% of their observations are NAs
+
+```{r}
+training <- training[, colSums(is.na(training)) < (length(training)* 0.7)]
+
+dim(training)
+```
+
+Apply the same transformations to the testing sets
+
+```{r}
+columns1 <- colnames(training)
+columns2 <- colnames(training[, -54])
+
+testing <- testing[columns1]
+testing_data <- testing_data[columns2]
+
+dim(testing)
+dim(testing_data)
+```
+
+
+<br></br>
+
+##### Correlation Analysis
+
+```{r}
+training %>% 
+  select(-54) %>% 
+  cor() %>% 
+  ggcorrplot(
+    outline.color = "white",
+    tl.cex = 6.5,
+    type = "upper",
+    insig = c("blank"),
+    title = "Correlation Matrix"
+    )
+```
+
+As evidenced by the plot, there aren't a significant amount of correlated predictors, so PCA not necessarily needed.
+
+<br></br>
+
+##### Model Selection
+
+Will use two different modeling techniques - decision trees with CART and random forest - and determine which one has the best out-of-sample accuracy. 
+
+First, let's set up our cross validation parameters for each model where we'll use k = 3.
+
+```{r}
+fitCV <- trainControl(method = "cv", number = 3)
+
+```
+
+**Model Fitting**
+
+```{r}
+rpartModel <- train(classe ~ ., data = training, method = "rpart", trControl = fitCV)
+rfModel <- train(classe ~ ., data = training, method = "rf", trControl = fitCV)
+
+```
+
+**Model Assessment**
+
+```{r}
+rpartPred <- predict(rpartModel, newdata = testing)
+rpartCM <- confusionMatrix(rpartPred, as.factor(testing$classe))
+rfPred <- predict(rfModel, newdata = testing)
+rfCM <- confusionMatrix(rfPred, as.factor(testing$classe))
+
+accuracy <- data.frame(
+  Model = c('CART', 'RF'),
+  Accuracy = rbind(rpartCM$overall[1], rfCM$overall[1])
+)
+
+print(accuracy)
+
+```
+
+As seen above, the random forest algorithm fits a more accurate model than classification (99.8%). Here's the full summary of results for the random forest model, which we'll use for the final prediction:
+
+```{r}
+print(rfCM)
+
+```
+
+
+<br></br>
+
+##### Prediction
+
+In order to predict the 20 quiz results, we'll use the random forest model applied to the original test data
+
+```{r}
+final_prediction <- predict(rfModel, newdata = testing_data)
+
+final_prediction
+```
+
+
+
